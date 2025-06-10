@@ -1,0 +1,591 @@
+# packages/common/infra/src/framework 模块架构分析
+
+## 整体结构
+
+```mermaid
+graph TD
+    A[framework模块] --> B[core/ 核心实现]
+    A --> C[react/ React集成]
+    B --> D[components/ 核心组件]
+    B --> E[依赖注入系统]
+    B --> F[事件系统]
+    C --> G[Provider组件]
+    C --> H[服务Hook]
+    D --> I[Service]
+    D --> J[Store]
+    D --> K[Entity]
+    D --> L[Scope]
+```
+
+## 核心目录功能
+
+| 目录/文件           | 功能说明                       |
+| ------------------- | ------------------------------ |
+| `core/`             | 框架核心实现                   |
+| `core/framework.ts` | DI容器中枢，管理组件注册和解析 |
+| `core/component.ts` | 所有组件的基类                 |
+| `core/provider.ts`  | 依赖注入容器实现               |
+| `core/components/`  | 核心组件类型定义               |
+| `react/`            | React框架集成层                |
+| `__tests__/`        | 单元测试                       |
+
+## 核心组件类型
+
+| 组件类型  | 功能         | 继承关系          |
+| --------- | ------------ | ----------------- |
+| `Service` | 业务逻辑单元 | 继承自`Component` |
+| `Store`   | 状态管理     | 继承自`Component` |
+| `Entity`  | 领域模型     | 继承自`Component` |
+| `Scope`   | 作用域管理   | 特殊组件类型      |
+
+## 核心类详细分析
+
+### 1. `Framework` 类
+
+**设计意图**：作为DI容器核心，管理组件的注册、解析和生命周期
+
+```typescript
+// 初始化示例
+const framework = new Framework();
+
+// 注册组件（三种方式）
+// 1. 直接注册值
+framework.addValue(LoggerService, new ConsoleLogger());
+
+// 2. 注册工厂函数
+framework.addFactory(DatabaseService, () => new MySQLDatabase());
+
+// 3. 使用流畅API（推荐）
+framework.service(AuthService, [UserRepository]).store(UserStore).entity(UserEntity);
+```
+
+### 2. `FrameworkEditor` 类
+
+**设计意图**：提供类型安全的流畅API简化组件注册
+
+```typescript
+const editor = new FrameworkEditor(framework);
+
+// 注册服务（自动处理依赖）
+editor.service(NotificationService, [LoggerService, EmailService]);
+
+// 注册带依赖的存储
+editor.store(UserStore, [UserRepository, LoggerService]);
+
+// 设置作用域
+editor.scope(UserScope).service(UserService);
+
+// 覆盖现有实现
+editor.override(LoggerService, new CustomLogger());
+```
+
+### 3. `Component` 基类
+
+**设计意图**：提供组件的统一生命周期管理
+
+```typescript
+class CustomService extends Component {
+  constructor() {
+    super(); // 自动注入framework和props
+
+    // 注册资源清理回调
+    this.disposables.push(() => {
+      console.log('Cleaning up resources');
+    });
+  }
+
+  // 组件生命周期方法
+  async initialize() {
+    // 初始化逻辑
+  }
+
+  dispose() {
+    super.dispose(); // 调用父类清理
+    // 自定义清理逻辑
+  }
+}
+```
+
+### 4. `Service` 组件
+
+**设计意图**：封装可复用的业务逻辑单元
+
+```typescript
+class PaymentService extends Service {
+  constructor(
+    private paymentGateway: PaymentGatewayService,
+    private logger: LoggerService
+  ) {
+    super();
+  }
+
+  processPayment(amount: number) {
+    this.logger.log(`Processing $${amount} payment`);
+    return this.paymentGateway.charge(amount);
+  }
+}
+
+// 注册服务
+framework.service(PaymentService, [PaymentGatewayService, LoggerService]);
+```
+
+### 5. `Store` 组件
+
+**设计意图**：管理应用状态，提供响应式数据绑定
+
+```typescript
+class UserStore extends Store {
+  @observable users: User[] = [];
+
+  addUser(user: User) {
+    this.users.push(user);
+    this.emit('user-added', user);
+  }
+
+  // 持久化状态
+  async save() {
+    await localStorage.set('users', this.users);
+  }
+}
+
+// 注册Store
+framework.store(UserStore);
+```
+
+### 6. `Entity` 组件
+
+**设计意图**：封装领域模型，处理业务逻辑
+
+```typescript
+class UserEntity extends Entity {
+  constructor(
+    public id: string,
+    public name: string,
+    public email: string
+  ) {
+    super();
+  }
+
+  // 业务方法
+  changeEmail(newEmail: string) {
+    this.validateEmail(newEmail);
+    this.email = newEmail;
+  }
+
+  private validateEmail(email: string) {
+    // 验证逻辑
+  }
+}
+
+// 注册Entity
+framework.entity(UserEntity);
+```
+
+### 7. 作用域系统
+
+**设计意图**：实现环境隔离和配置覆盖
+
+```typescript
+// 定义作用域
+const AdminScope = createScope('admin');
+
+// 注册全局服务
+framework.service(LoggerService, () => new ConsoleLogger());
+
+// 在admin作用域覆盖实现
+framework.scope(AdminScope).override(LoggerService, () => new FileLogger('/var/log/admin.log'));
+
+// 创建作用域provider
+const adminProvider = framework.provider([AdminScope]);
+```
+
+### 8. `createIdentifier` 函数
+
+**设计意图**：创建类型安全的服务标识符，实现依赖倒置
+
+```typescript
+// 定义服务接口
+interface Storage {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+}
+
+// 创建标识符（推荐使用接口名称）
+const Storage = createIdentifier<Storage>('Storage');
+
+// 使用变体创建不同实现标识
+const LocalStorage = Storage('local');
+const SessionStorage = Storage('session');
+```
+
+### 9. 标识符关键特性
+
+1. **接口与实现解耦**：
+
+   ```typescript
+   // 实现接口
+   class LocalStorageImpl implements Storage {
+     get(key) {
+       return localStorage.getItem(key);
+     }
+     set(key, value) {
+       localStorage.setItem(key, value);
+     }
+   }
+
+   // 注册实现
+   framework.impl(LocalStorage, LocalStorageImpl);
+   ```
+
+2. **多实现支持**：
+
+   ```typescript
+   // 注册多个实现
+   framework.impl(LocalStorage, LocalStorageImpl);
+   framework.impl(SessionStorage, SessionStorageImpl);
+
+   // 获取特定实现
+   const localStorage = provider.get(LocalStorage);
+
+   // 获取所有实现
+   const allStorages = provider.getAll(Storage);
+   ```
+
+3. **构造函数标识符生成**：
+
+   ```typescript
+   // 自动为类生成唯一标识符
+   class AuthService {}
+   const authIdentifier = createIdentifierFromConstructor(AuthService);
+   ```
+
+4. **标识符解析**：
+   ```typescript
+   // 解析各种标识符类型
+   parseIdentifier(LocalStorage); // => IdentifierValue
+   parseIdentifier(AuthService); // => 从类生成标识符
+   ```
+
+### 10. 设计优势
+
+1. **类型安全**：在编译时捕获类型错误
+2. **灵活性**：支持同一接口的多个实现
+3. **可测试性**：轻松替换实现进行测试
+4. **可扩展性**：通过变体支持不同环境配置
+   **设计意图**：实现环境隔离和配置覆盖
+
+```typescript
+// 定义作用域
+const AdminScope = createScope('admin');
+
+// 注册全局服务
+framework.service(LoggerService, () => new ConsoleLogger());
+
+// 在admin作用域覆盖实现
+framework.scope(AdminScope).override(LoggerService, () => new FileLogger('/var/log/admin.log'));
+
+// 创建作用域provider
+const adminProvider = framework.provider([AdminScope]);
+```
+
+## 框架初始化与配置
+
+在React应用中使用框架前，需要先创建和配置`framework`实例：
+
+```typescript
+// 1. 创建框架实例
+import { Framework } from '@affine/infra/framework/core';
+
+// 通常会在应用入口文件创建全局框架实例
+const framework = new Framework();
+
+// 2. 注册核心服务
+framework
+  .service(LoggerService, [
+    /* 依赖项 */
+  ])
+  .store(UserStore)
+  .entity(ProfileEntity);
+
+// 3. 配置作用域（可选）
+const AdminScope = createScope('admin');
+framework.scope(AdminScope).override(LoggerService, () => new AdminLogger());
+```
+
+在React应用中传递框架实例：
+
+```tsx
+// 应用入口文件
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { FrameworkRoot } from '@affine/infra/framework/react';
+import App from './App';
+
+// 创建框架实例并配置
+import { configureFramework } from './framework-config';
+const framework = configureFramework();
+
+createRoot(document.getElementById('root')).render(
+  <FrameworkRoot framework={framework.provider()}>
+    <App />
+  </FrameworkRoot>
+);
+```
+
+#### 配置最佳实践
+
+1. **集中配置**：创建`framework-config.ts`统一管理
+2. **模块化配置**：按功能模块拆分
+3. **异步初始化**：支持异步加载的服务
+
+## React集成分析
+
+### 核心组件和Hook
+
+`react/index.tsx`文件提供React上下文集成：
+
+```tsx
+import { FrameworkRoot, useService } from '@affine/infra/framework/react';
+
+function App() {
+  return (
+    <FrameworkRoot framework={framework}>
+      <ChildComponent />
+    </FrameworkRoot>
+  );
+}
+
+function ChildComponent() {
+  const logger = useService(LoggerService);
+  logger.log('Rendered');
+  return <div>Hello</div>;
+}
+```
+
+### 作用域隔离实现
+
+**设计意图**：实现功能模块的配置隔离
+
+```tsx
+function AdminPanel() {
+  return (
+    <FrameworkScope scope={AdminScope}>
+      <AdminDashboard />
+    </FrameworkScope>
+  );
+}
+
+function AdminDashboard() {
+  // 获取的是AdminScope作用域覆盖后的LoggerService
+  const logger = useService(LoggerService);
+
+  useEffect(() => {
+    logger.log('Admin dashboard mounted');
+  }, []);
+
+  return <div>Admin Area</div>;
+}
+```
+
+## Framework 与 Provider 的关系解析
+
+### 通俗解释
+
+可以将整个系统比作一个**大型工厂**：
+
+- `Framework` 是工厂的 **设计蓝图**（包含所有机器和产品的设计方案）
+- `Provider` 是工厂的 **生产车间**（根据蓝图制造具体产品）
+
+### 核心关系
+
+```mermaid
+graph LR
+    A[Framework] -->|提供配置| B[Provider]
+    B -->|创建实例| C[Service]
+    B -->|创建实例| D[Store]
+    B -->|创建实例| E[Entity]
+
+    F[应用] -->|获取实例| B
+    G[子作用域] -->|继承配置| B
+```
+
+### 详细说明
+
+1. **Framework 是配置中心**
+
+   - 存储所有组件的注册信息（服务、存储、实体等）
+   - 定义组件之间的关系和依赖
+   - 类似工厂的"设计部门"，只做规划不直接生产
+
+2. **Provider 是实例工厂**
+
+   - 根据Framework的配置创建具体实例
+   - 管理实例的生命周期
+   - 处理依赖注入（自动解决组件依赖关系）
+   - 类似工厂的"生产车间"，负责实际制造
+
+3. **工作流程示例**
+
+```typescript
+// 1. 创建蓝图（Framework）
+const framework = new Framework();
+
+// 2. 在设计蓝图注册产品设计
+framework.service(LoggerService, () => new ConsoleLogger());
+
+// 3. 创建生产车间（Provider）
+const provider = framework.provider();
+
+// 4. 车间生产具体产品
+const logger = provider.get(LoggerService);
+logger.log('产品生产完成！'); // 输出: 产品生产完成！
+
+// 5. 创建子车间（带特殊配置）
+const devProvider = framework.provider([DevScope]);
+const devLogger = devProvider.get(LoggerService); // 可能是不同的实现
+```
+
+### 关键区别
+
+| 特性         | Framework                      | Provider                                 |
+| ------------ | ------------------------------ | ---------------------------------------- |
+| **角色**     | 配置注册中心                   | 实例工厂                                 |
+| **生命周期** | 长期存在（应用级别）           | 可短期存在（作用域级别）                 |
+| **状态**     | 无状态（存储配置）             | 有状态（管理实例）                       |
+| **创建方式** | 直接实例化 (`new Framework()`) | 从Framework派生 (`framework.provider()`) |
+
+### 实际应用场景
+
+```tsx
+// React应用入口
+function App() {
+  // 创建主车间（通常全局唯一）
+  const mainProvider = framework.provider();
+
+  return (
+    // 提供车间给所有组件
+    <FrameworkContext.Provider value={mainProvider}>
+      <Dashboard />
+    </FrameworkContext.Provider>
+  );
+}
+
+// 组件内使用
+function UserPanel() {
+  // 从上下文获取车间
+  const provider = useContext(FrameworkContext);
+
+  // 生产所需服务
+  const userService = provider.get(UserService);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    userService.getCurrent().then(setUser);
+  }, []);
+
+  return <div>{user?.name}</div>;
+}
+```
+
+## 设计模式与架构思想
+
+### 1. 依赖注入(DI)
+
+- 使用标识符解耦依赖
+- 支持构造函数注入
+- 分层作用域系统
+
+### 2. 组件生命周期
+
+- 通过`dispose()`管理资源清理
+- 自动垃圾回收
+- 资源释放回调机制
+
+### 3. 事件系统
+
+- 通过`eventBus`实现组件通信
+- 所有组件可通过`this.eventBus`访问
+- 松耦合的组件交互
+
+## 完整架构图
+
+```mermaid
+graph LR
+    A[应用入口] --> B[FrameworkRoot]
+    B --> C[业务组件]
+    C --> D[useService]
+    D --> E[Service]
+    D --> F[Store]
+    D --> G[Entity]
+    B --> H[FrameworkScope]
+    H --> I[模块A]
+    H --> J[模块B]
+    I --> K[模块A服务]
+    J --> L[模块B服务]
+
+    subgraph DI容器
+    E --> M[Framework]
+    F --> M
+    G --> M
+    K --> M
+    L --> M
+    end
+```
+
+## 使用示例集合
+
+### 基础使用
+
+```typescript
+// 服务定义
+class LoggerService extends Service {
+  log(message: string) {
+    console.log(message);
+  }
+}
+
+// 框架初始化
+const framework = new Framework();
+framework.impl(LoggerService);
+
+// 获取服务实例
+const logger = framework.provider().get(LoggerService);
+logger.log('Hello Framework!');
+```
+
+### 作用域使用
+
+```typescript
+// 用户作用域
+const UserScope = createScope('user');
+
+// 在用户作用域注册服务
+framework.scope(UserScope).service(UserService, [UserRepository]);
+
+// 创建用户作用域provider
+const userProvider = framework.provider([UserScope]);
+const userService = userProvider.get(UserService);
+```
+
+### React集成
+
+```tsx
+import { FrameworkRoot, useServices } from '@affine/infra/framework/react';
+
+function ShoppingCart() {
+  const { cartService, paymentService } = useServices({
+    CartService,
+    PaymentService,
+  });
+
+  const checkout = () => {
+    paymentService.processPayment(cartService.total);
+  };
+
+  return (
+    <div>
+      <button onClick={checkout}>Checkout</button>
+    </div>
+  );
+}
+```

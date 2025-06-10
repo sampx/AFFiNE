@@ -281,6 +281,305 @@ generates:
 
 **核心模块：**
 
+#### packages/common/infra/src/framework 模块架构分析
+
+```mermaid
+graph TD
+    A[framework模块] --> B[core/ 核心实现]
+    A --> C[react/ React集成]
+    B --> D[components/ 核心组件]
+    B --> E[依赖注入系统]
+    B --> F[事件系统]
+    C --> G[Provider组件]
+    C --> H[服务Hook]
+    D --> I[Service]
+    D --> J[Store]
+    D --> K[Entity]
+    D --> L[Scope]
+```
+
+## 核心目录功能
+
+| 目录/文件           | 功能说明                       |
+| ------------------- | ------------------------------ |
+| `core/`             | 框架核心实现                   |
+| `core/framework.ts` | DI容器中枢，管理组件注册和解析 |
+| `core/component.ts` | 所有组件的基类                 |
+| `core/provider.ts`  | 依赖注入容器实现               |
+| `core/components/`  | 核心组件类型定义               |
+| `react/`            | React框架集成层                |
+| `__tests__/`        | 单元测试                       |
+
+## 核心组件类型
+
+| 组件类型  | 功能         | 继承关系          |
+| --------- | ------------ | ----------------- |
+| `Service` | 业务逻辑单元 | 继承自`Component` |
+| `Store`   | 状态管理     | 继承自`Component` |
+| `Entity`  | 领域模型     | 继承自`Component` |
+| `Scope`   | 作用域管理   | 特殊组件类型      |
+
+## 核心类详细分析
+
+### 1. `Framework` 类
+
+**设计意图**：作为DI容器核心，管理组件的注册、解析和生命周期
+
+```typescript
+// 初始化示例
+const framework = new Framework();
+
+// 注册组件（三种方式）
+// 1. 直接注册值
+framework.addValue(LoggerService, new ConsoleLogger());
+
+// 2. 注册工厂函数
+framework.addFactory(DatabaseService, () => new MySQLDatabase());
+
+// 3. 使用流畅API（推荐）
+framework.service(AuthService, [UserRepository]).store(UserStore).entity(UserEntity);
+```
+
+### 2. `FrameworkEditor` 类
+
+**设计意图**：提供类型安全的流畅API简化组件注册
+
+```typescript
+const editor = new FrameworkEditor(framework);
+
+// 注册服务（自动处理依赖）
+editor.service(NotificationService, [LoggerService, EmailService]);
+
+// 注册带依赖的存储
+editor.store(UserStore, [UserRepository, LoggerService]);
+
+// 设置作用域
+editor.scope(UserScope).service(UserService);
+
+// 覆盖现有实现
+editor.override(LoggerService, new CustomLogger());
+```
+
+### 3. `Component` 基类
+
+**设计意图**：提供组件的统一生命周期管理
+
+```typescript
+class CustomService extends Component {
+  constructor() {
+    super(); // 自动注入framework和props
+
+    // 注册资源清理回调
+    this.disposables.push(() => {
+      console.log('Cleaning up resources');
+    });
+  }
+
+  // 组件生命周期方法
+  async initialize() {
+    // 初始化逻辑
+  }
+
+  dispose() {
+    super.dispose(); // 调用父类清理
+    // 自定义清理逻辑
+  }
+}
+```
+
+### 4. `Service` 组件
+
+**设计意图**：封装可复用的业务逻辑单元
+
+```typescript
+class PaymentService extends Service {
+  constructor(
+    private paymentGateway: PaymentGatewayService,
+    private logger: LoggerService
+  ) {
+    super();
+  }
+
+  processPayment(amount: number) {
+    this.logger.log(`Processing $${amount} payment`);
+    return this.paymentGateway.charge(amount);
+  }
+}
+
+// 注册服务
+framework.service(PaymentService, [PaymentGatewayService, LoggerService]);
+```
+
+### 5. 作用域系统
+
+**设计意图**：实现环境隔离和配置覆盖
+
+```typescript
+// 定义作用域
+const AdminScope = createScope('admin');
+
+// 注册全局服务
+framework.service(LoggerService, () => new ConsoleLogger());
+
+// 在admin作用域覆盖实现
+framework.scope(AdminScope).override(LoggerService, () => new FileLogger('/var/log/admin.log'));
+
+// 创建作用域provider
+const adminProvider = framework.provider([AdminScope]);
+```
+
+## React集成分析
+
+### 核心组件和Hook
+
+`react/index.tsx`文件提供React上下文集成：
+
+```tsx
+import { FrameworkRoot, useService } from '@affine/infra/framework/react';
+
+function App() {
+  return (
+    <FrameworkRoot framework={framework}>
+      <ChildComponent />
+    </FrameworkRoot>
+  );
+}
+
+function ChildComponent() {
+  const logger = useService(LoggerService);
+  logger.log('Rendered');
+  return <div>Hello</div>;
+}
+```
+
+### 作用域隔离实现
+
+**设计意图**：实现功能模块的配置隔离
+
+```tsx
+function AdminPanel() {
+  return (
+    <FrameworkScope scope={AdminScope}>
+      <AdminDashboard />
+    </FrameworkScope>
+  );
+}
+
+function AdminDashboard() {
+  // 获取的是AdminScope作用域覆盖后的LoggerService
+  const logger = useService(LoggerService);
+
+  useEffect(() => {
+    logger.log('Admin dashboard mounted');
+  }, []);
+
+  return <div>Admin Area</div>;
+}
+```
+
+## 设计模式与架构思想
+
+### 1. 依赖注入(DI)
+
+- 使用标识符解耦依赖
+- 支持构造函数注入
+- 分层作用域系统
+
+### 2. 组件生命周期
+
+- 通过`dispose()`管理资源清理
+- 自动垃圾回收
+- 资源释放回调机制
+
+### 3. 事件系统
+
+- 通过`eventBus`实现组件通信
+- 所有组件可通过`this.eventBus`访问
+- 松耦合的组件交互
+
+## 完整架构图
+
+```mermaid
+graph LR
+    A[应用入口] --> B[FrameworkRoot]
+    B --> C[业务组件]
+    C --> D[useService]
+    D --> E[Service]
+    D --> F[Store]
+    D --> G[Entity]
+    B --> H[FrameworkScope]
+    H --> I[模块A]
+    H --> J[模块B]
+    I --> K[模块A服务]
+    J --> L[模块B服务]
+
+    subgraph DI容器
+    E --> M[Framework]
+    F --> M
+    G --> M
+    K --> M
+    L --> M
+    end
+```
+
+## 使用示例集合
+
+### 基础使用
+
+```typescript
+// 服务定义
+class LoggerService extends Service {
+  log(message: string) {
+    console.log(message);
+  }
+}
+
+// 框架初始化
+const framework = new Framework();
+framework.impl(LoggerService);
+
+// 获取服务实例
+const logger = framework.provider().get(LoggerService);
+logger.log('Hello Framework!');
+```
+
+### 作用域使用
+
+```typescript
+// 用户作用域
+const UserScope = createScope('user');
+
+// 在用户作用域注册服务
+framework.scope(UserScope).service(UserService, [UserRepository]);
+
+// 创建用户作用域provider
+const userProvider = framework.provider([UserScope]);
+const userService = userProvider.get(UserService);
+```
+
+### React集成
+
+```tsx
+import { FrameworkRoot, useServices } from '@affine/infra/framework/react';
+
+function ShoppingCart() {
+  const { cartService, paymentService } = useServices({
+    CartService,
+    PaymentService,
+  });
+
+  const checkout = () => {
+    paymentService.processPayment(cartService.total);
+  };
+
+  return (
+    <div>
+      <button onClick={checkout}>Checkout</button>
+    </div>
+  );
+}
+```
+
 #### 5.1 Operation Pattern (Op)
 
 ```typescript

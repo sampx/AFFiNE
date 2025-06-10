@@ -1,3 +1,4 @@
+```
 +-----------------------------+
 | 用户界面 (Web / Electron) |
 | |
@@ -42,11 +43,13 @@ v
 ## 架构层级说明
 
 ### 1. 用户界面层（Frontend）
+
 - **React + TypeScript**：构建现代化的前端应用，支持 Web 和 Electron 客户端。
 - **Radix UI / Emotion CSS**：高质量 UI 组件和样式系统。
 - **GraphQL API 调用**：通过 Apollo Client 或 `ai` SDK 与后端交互。
 
 ### 2. 后端服务层（Backend）
+
 - **NestJS 11 + TypeScript**：模块化结构、依赖注入、中间件支持。
 - **GraphQL API**：使用 Apollo Server 提供统一的数据接口。
 - **RESTful API**：用于文件上传、身份验证等非 GraphQL 场景。
@@ -54,10 +57,12 @@ v
 - **BullMQ 异步任务队列**：处理文档同步、邮件发送等后台任务。
 
 ### 3. 数据存储层（Database）
+
 - **PostgreSQL + Prisma ORM**：关系型数据存储与模型管理。
 - **Redis**：缓存加速、分布式锁、消息队列支持。
 
 ### 4. 第三方服务集成（External Services）
+
 - **AI 模型**：OpenAI、Anthropic、Google Vertex 等提供智能功能。
 - **支付系统**：Stripe、Apple Pay 等用于订阅与交易。
 - **对象存储**：S3、GCP Cloud Storage 用于文档与媒体存储。
@@ -73,6 +78,3 @@ v
    - 前端 A ↔ WebSocket ↔ Sync 模块 ↔ Redis Pub/Sub ↔ 前端 B。
 4. **异步任务**：
    - 前端 → 触发任务 → BullMQ 队列 → Worker 模块执行 → 回调更新状态。
-
-如需进一步细化某一层（如 GraphQL Schema 设计、Prisma 数据模型、WebSocket 协议等），请告诉我具体需求，我可以为你绘制更详细的架构图或提供代码级解析。
-```
