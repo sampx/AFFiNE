@@ -2,7 +2,6 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
-import * as fg from 'fast-glob';
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
@@ -53,9 +52,10 @@ export default defineConfig({
       resolve(rootDir, './scripts/setup/global.ts'),
     ],
     include: [
-      // rootDir cannot be used as a pattern on windows
-      fg.convertPathToPattern(rootDir) +
-        'packages/{common,frontend}/**/*.spec.{ts,tsx}',
+      // 直接使用fast-glob模式
+      `${rootDir}/packages/{common,frontend}/**/*.spec.{ts,tsx}`,
+      // 添加tools目录测试
+      `${rootDir}/tools/**/*.spec.{ts,tsx}`,
     ],
     exclude: [
       '**/node_modules',
@@ -70,6 +70,10 @@ export default defineConfig({
       provider: 'istanbul', // or 'c8'
       reporter: ['lcov'],
       reportsDirectory: resolve(rootDir, '.coverage/store'),
+    },
+    // 解决clipanion的ES模块导入问题,只有这里生效，但不完全
+    deps: {
+      inline: ['clipanion'],
     },
   },
 });
