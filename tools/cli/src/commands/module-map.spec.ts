@@ -1,4 +1,4 @@
-import * as fs from 'node:fs/promisess';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { Cli } from 'clipanion';
