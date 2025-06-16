@@ -151,6 +151,25 @@ class Resolver extends FrameworkProvider {
   collection = this.provider.collection;
   eventBus = this.provider.eventBus;
 
+  /**
+   * 获取指定标识符对应的原始组件实例
+   *
+   * @param identifier - 组件标识符
+   * @param options - 解析选项配置
+   * @param options.sameScope - 是否只在当前作用域查找，默认为false
+   * @param options.optional - 是否允许返回undefined，默认为false
+   * @param options.noCache - 是否绕过缓存直接创建实例，默认为false
+   * @param options.props - 传递给工厂函数的额外属性
+   *
+   * @returns 解析得到的组件实例，当optional为true时可能返回undefined
+   * @throws {ComponentNotFoundError} 当组件未找到且optional为false时抛出
+   * @throws {MissingDependencyError} 当依赖组件缺失时抛出
+   *
+   * @remarks
+   * 1. 支持跨作用域向上查找父级provider
+   * 2. 默认使用缓存机制避免重复创建实例
+   * 3. 内部处理了依赖解析错误转换逻辑
+   */
   getRaw(
     identifier: IdentifierValue,
     {
@@ -180,14 +199,27 @@ class Resolver extends FrameworkProvider {
       throw new ComponentNotFoundError(identifier);
     }
 
+    /**
+     * 执行工厂函数并处理依赖解析
+     *
+     * @returns 工厂函数的执行结果
+     * @throws {MissingDependencyError} 当依赖组件未找到时抛出
+     * @throws 工厂函数执行过程中抛出的其他错误
+     *
+     * @remarks
+     * 内部使用track方法追踪依赖，并通过withContext提供执行上下文。
+     * 当捕获到ComponentNotFoundError时，会转换为MissingDependencyError抛出。
+     */
     const runFactory = () => {
       const nextResolver = this.track(identifier);
       try {
+        // 使用上下文执行工厂函数
         return withContext(() => factory(nextResolver), {
           provider: this.provider,
           props,
         });
       } catch (err) {
+        // 如果捕获到组件未找到错误，转换为依赖缺失错误并抛出
         if (err instanceof ComponentNotFoundError) {
           throw new MissingDependencyError(
             identifier,
@@ -195,6 +227,7 @@ class Resolver extends FrameworkProvider {
             this.stack
           );
         }
+        // 其他错误直接抛出
         throw err;
       }
     };

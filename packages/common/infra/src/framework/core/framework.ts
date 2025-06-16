@@ -111,6 +111,19 @@ export class Framework {
   /**
    * @internal Use {@link impl} instead.
    */
+  /**
+   * 添加一个组件工厂到框架中
+   *
+   * @param identifier - 组件标识符，可以是字符串或GeneralIdentifier对象
+   * @param factory - 组件工厂函数
+   * @param options - 可选配置项
+   * @param options.scope - 组件的作用域栈，默认为根作用域
+   * @param options.override - 是否允许覆盖已存在的组件，默认为false
+   * @throws {DuplicateDefinitionError} 当组件已存在且未设置override时抛出
+   *
+   * 该方法会将组件工厂按作用域、标识符和变体进行分层存储，
+   * 确保同一作用域下相同标识符和变体的组件唯一性
+   */
   addFactory<T>(
     identifier: GeneralIdentifier<T>,
     factory: ComponentFactory<T>,
@@ -119,23 +132,29 @@ export class Framework {
       override,
     }: { scope?: FrameworkScopeStack; override?: boolean } = {}
   ) {
-    // convert scope to string
+    // 1. 规范化作用域为字符串格式
     const normalizedScope = stringifyScope(scope ?? ROOT_SCOPE);
+    // 2. 解析组件标识符
     const normalizedIdentifier = parseIdentifier(identifier);
+    // 3. 获取或使用默认变体
     const normalizedVariant = normalizedIdentifier.variant ?? DEFAULT_VARIANT;
 
+    // 4. 获取或初始化作用域下的服务集合
     const services =
       this.components.get(normalizedScope) ??
       new Map<string, Map<ComponentVariant, ComponentFactory>>();
 
+    // 5. 获取或初始化组件名称下的变体集合
     const variants =
       services.get(normalizedIdentifier.identifierName) ??
       new Map<ComponentVariant, ComponentFactory>();
 
-    // throw if service already exists, unless it is an override
+    // 6. 检查是否已存在相同变体的组件(除非允许覆盖)
     if (variants.has(normalizedVariant) && !override) {
       throw new DuplicateDefinitionError(normalizedIdentifier);
     }
+
+    // 7. 注册组件
     variants.set(normalizedVariant, factory);
     services.set(normalizedIdentifier.identifierName, variants);
     this.components.set(normalizedScope, services);
@@ -477,17 +496,28 @@ class FrameworkEditor {
 }
 
 /**
- * Convert dependencies definition to a factory function.
+ * 将依赖项转换为组件工厂函数
+ *
+ * @param cls - 目标类或工厂函数
+ * @param deps - 依赖项数组，默认为空数组
+ * @returns 返回一个组件工厂函数，该函数接收FrameworkProvider并返回类实例或工厂函数结果
+ *
+ * @remarks
+ * - 当依赖项是数组形式时，表示需要获取该标识符对应的所有实例
+ * - 会自动检测cls是否为构造函数来决定使用new调用还是直接调用
+ * - 会将provider作为最后一个参数传递给构造函数或工厂函数
  */
 function dependenciesToFactory(
   cls: any,
   deps: any[] = []
 ): ComponentFactory<any> {
   return (provider: FrameworkProvider) => {
-    const args = [];
+    // 处理依赖项
+    const args: any[] = []; // 存储解析后的依赖参数
     for (const dep of deps) {
-      let isAll;
-      let identifier;
+      let isAll: boolean; // 标记是否需要获取所有匹配实例
+      let identifier: any; // 依赖标识符
+      // 处理依赖项格式
       if (Array.isArray(dep)) {
         if (dep.length !== 1) {
           throw new Error('Invalid dependency');
@@ -498,12 +528,14 @@ function dependenciesToFactory(
         isAll = false;
         identifier = dep;
       }
+      // 获取依赖项实例
       if (isAll) {
         args.push(Array.from(provider.getAll(identifier).values()));
       } else {
         args.push(provider.get(identifier));
       }
     }
+    // 创建组件实例
     if (isConstructor(cls)) {
       return new cls(...args, provider);
     } else {

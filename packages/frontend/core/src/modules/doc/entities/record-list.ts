@@ -61,6 +61,11 @@ export class DocRecordList extends Entity {
     false
   );
 
+  /**
+   * 根据文档ID获取对应的文档可观察对象
+   * @param id - 文档的唯一标识符
+   * @returns 返回一个可观察对象，该对象会发出指定ID的文档数据
+   */
   public doc$(id: string) {
     return this.docsMap$.selector(map => map.get(id));
   }

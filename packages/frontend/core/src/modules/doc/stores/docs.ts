@@ -63,6 +63,11 @@ export class DocsStore extends Store {
     return id;
   }
 
+  /**
+   * 监听文档ID列表的变化
+   * @returns 返回一个Observable，当文档ID列表变化时发出新的ID数组
+   * @description 通过监听Yjs文档的'meta.pages'路径变化，获取并转换文档ID数组
+   */
   watchDocIds() {
     return yjsGetPath(
       this.workspaceService.workspace.rootYDoc.getMap('meta'),
@@ -70,9 +75,13 @@ export class DocsStore extends Store {
     ).pipe(
       switchMap(yjsObserve),
       map(meta => {
+        // Check if the meta object is a YArray
         if (meta instanceof YArray) {
+          // Extract document IDs from each entry in the YArray
+          // Each entry is expected to be a YMap containing an 'id' property
           return meta.map(v => v.get('id') as string);
         } else {
+          // Return empty array if meta is not a YArray
           return [];
         }
       })
@@ -123,6 +132,14 @@ export class DocsStore extends Store {
     );
   }
 
+  /**
+   * 监听所有文档的创建日期变更
+   *
+   * 通过Yjs获取workspace中所有页面的创建日期，并返回一个包含页面ID和创建日期的数组的可观察对象
+   * 当meta.pages或其中任意页面的createDate发生变化时，会触发更新
+   *
+   * @returns Observable<Array<{id: string, createDate: number}>> 包含页面ID和创建日期的数组的可观察对象
+   */
   watchAllDocCreateDate() {
     return yjsGetPath(
       this.workspaceService.workspace.rootYDoc.getMap('meta'),

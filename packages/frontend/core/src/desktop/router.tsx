@@ -185,6 +185,13 @@ export const topLevelRoutes = [
 const createBrowserRouter = wrapCreateBrowserRouterV6(
   reactRouterCreateBrowserRouter
 );
+/**
+ * 创建并导出一个浏览器路由器实例
+ *
+ * 根据是否启用Sentry发布环境，选择使用不同的路由器创建方法
+ * @param topLevelRoutes - 顶级路由配置数组
+ * @param options - 路由器配置选项，包括基础路径和未来特性标志
+ */
 export const router = (
   window.SENTRY_RELEASE ? createBrowserRouter : reactRouterCreateBrowserRouter
 )(topLevelRoutes, {

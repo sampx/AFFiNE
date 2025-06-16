@@ -159,6 +159,12 @@ export class Workbench extends Entity {
     }
   }
 
+  /**
+   * 创建一个新标签页并导航到指定路由
+   * @param to - 目标路由路径
+   * @param options - 配置选项
+   * @param options.show - 是否立即显示该标签页，默认为true
+   */
   newTab(
     to: To,
     {

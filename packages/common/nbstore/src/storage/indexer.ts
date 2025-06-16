@@ -15,12 +15,31 @@ export interface IndexerStorage extends Storage {
   readonly storageType: 'indexer';
   readonly isReadonly: boolean;
 
+  /**
+   * 在指定表中搜索符合查询条件的记录
+   * @typeParam T - 索引模式的键类型
+   * @typeParam O - 搜索选项类型，受T约束
+   * @param table - 要搜索的表名称
+   * @param query - 查询条件对象
+   * @param options - 可选的搜索选项
+   * @returns 包含搜索结果的Promise对象
+   */
   search<T extends keyof IndexerSchema, const O extends SearchOptions<T>>(
     table: T,
     query: Query<T>,
     options?: O
   ): Promise<SearchResult<T, O>>;
 
+  /**
+   * 在指定表中对符合查询条件的记录进行聚合计算
+   * @typeParam T - 索引模式的键类型
+   * @typeParam O - 聚合选项类型，受T约束
+   * @param table - 要聚合的表名称
+   * @param query - 查询条件对象
+   * @param field - 要聚合的字段名称
+   * @param options - 可选的聚合选项
+   * @returns 包含聚合结果的Promise对象
+   */
   aggregate<T extends keyof IndexerSchema, const O extends AggregateOptions<T>>(
     table: T,
     query: Query<T>,
@@ -28,6 +47,15 @@ export interface IndexerStorage extends Storage {
     options?: O
   ): Promise<AggregateResult<T, O>>;
 
+  /**
+   * 订阅指定表中符合查询条件的记录的搜索结果
+   * @typeParam T - 索引模式的键类型
+   * @typeParam O - 搜索选项类型，受T约束
+   * @param table - 要搜索的表名称
+   * @param query - 查询条件对象
+   * @param options - 可选的搜索选项
+   * @returns 包含搜索结果的Observable对象
+   */
   search$<T extends keyof IndexerSchema, const O extends SearchOptions<T>>(
     table: T,
     query: Query<T>,
@@ -85,6 +113,17 @@ export type SearchOptions<T extends keyof IndexerSchema> = {
   fields?: (keyof IndexerSchema[T])[];
 };
 
+/**
+ * Represents the result of a search operation.
+ * @template T - The type of key in IndexerSchema
+ * @template O - The search options type extending SearchOptions<T>
+ * @property {ResultPagination} pagination - Pagination information for the search results
+ * @property {Array} nodes - Array of search result nodes
+ * @property {string} nodes[].id - Unique identifier for each result node
+ * @property {number} nodes[].score - Relevance score of the search result
+ * @property {Object} [nodes[].fields] - Optional field values when O['fields'] is specified
+ * @property {Object} [nodes[].highlights] - Optional highlight snippets when O['highlights'] is specified
+ */
 export type SearchResult<
   T extends keyof IndexerSchema,
   O extends SearchOptions<T>,

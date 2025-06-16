@@ -31,10 +31,9 @@ export class DocsService extends Service {
   });
 
   /**
-   * Get all property values of a property, used for search
-   *
-   * Results may include docs in trash or deleted docs
-   * Legacy property data such as old `journal` will not be included in the values
+   * 观察指定属性的所有文档值变化
+   * @param propertyKey 要观察的属性键名
+   * @returns 返回一个Observable，包含文档ID到属性值的映射Map
    */
   propertyValues$(propertyKey: string) {
     return combineLatest([
