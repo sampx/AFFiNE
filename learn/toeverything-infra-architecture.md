@@ -84,8 +84,6 @@ const workspaceProvider = provider.createScope(WorkspaceScope, {
 });
 ```
 
-｜ [Framework 技术文档](./toeverything-infra-framework-teckmemo.md)
-
 ### 2. LiveData 模块 - 响应式数据系统
 
 **设计理念**: 基于 RxJS 的响应式数据流，提供类似 Android LiveData 的 API。
@@ -134,8 +132,6 @@ function Counter() {
   return <div>{count}</div>;
 }
 ```
-
-｜ [LiveData 技术文档](./toeverything-infra-livedata-techmemo.md)
 
 ### 3. Storage 模块 - 存储抽象层
 
@@ -286,8 +282,6 @@ expiringStore.set('token', 'abc123', 3600000); // 1小时有效期
 2. `wrapMemento` 的命名空间前缀需确保全局唯一
 3. `ByteKV` 事务操作需要保证回调函数的原子性
 
-| [Storage 技术文档](./toeverything-infra-storage-techmemo.md)]
-
 ### 4. ORM 模块 - 对象关系映射
 
 **设计理念**: 轻量级 ORM 系统，支持多种数据库适配器。
@@ -336,8 +330,6 @@ ORMClientClass.defineHook('users', 'before-create', async data => {
 });
 ```
 
-| [ORM 技术文档](./toeverything-infra-orm-techmemo.md)]
-
 ### 5. Atom 模块 - 状态管理
 
 **设计理念**: 基于 Jotai 的原子化状态管理。
@@ -378,8 +370,6 @@ function Settings() {
   );
 }
 ```
-
-｜ [Atom 技术文档](./toeverything-infra-atom-techmemo.md)
 
 ### 6. Op 模块 - 操作模式框架
 
@@ -430,8 +420,6 @@ client.call('subscribeStatus', 123).subscribe(status => {
   console.log('Status:', status);
 });
 ```
-
-| [Op 技术文档](./toeverything-infra-op-techmemo.md)]
 
 ### 7. Utils 模块 - 工具函数集
 
@@ -486,8 +474,6 @@ yDocToObservable(doc).subscribe(update => {
   console.log('Document updated:', update);
 });
 ```
-
-| [Utils 技术文档](./toeverything-infra-utils-techmemo.md)]
 
 ### 8. App Config Storage - 应用配置存储
 
@@ -612,6 +598,3 @@ const data$ = LiveData.from(
   null
 );
 ```
-
-- [BlockSuite 架构文档](./blocksuite-architecture.md)
-- [后端架构文档](./backend-architecture.md)

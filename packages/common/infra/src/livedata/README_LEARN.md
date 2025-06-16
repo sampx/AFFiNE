@@ -4,6 +4,39 @@
 
 LiveData 是 @toeverything/infra 中的响应式数据系统，基于 RxJS 构建，提供类似 Android LiveData 的 API。它是一个扩展了 Observable 的响应式数据类型，始终保持最新值并支持与 React 的深度集成。
 
+## 什么是响应式编程？
+
+在了解 LiveData 之前，让我们先理解响应式编程的核心概念。
+
+想象一下 Excel 表格中的公式：当 A1 单元格的值改变时，所有引用 A1 的单元格会自动更新。响应式编程就是这个概念在编程中的应用。
+
+```typescript
+// 传统编程方式
+let price = 100;
+let tax = 0.1;
+let total = price * (1 + tax); // total = 110
+
+price = 200; // 改变价格
+// total 仍然是 110，需要手动重新计算
+total = price * (1 + tax); // 需要手动更新
+
+// 响应式编程方式（使用 LiveData）
+const price$ = new LiveData(100);
+const tax$ = new LiveData(0.1);
+const total$ = LiveData.computed(get => get(price$) * (1 + get(tax$)));
+
+console.log(total$.value); // 110
+price$.next(200); // 改变价格
+console.log(total$.value); // 220 - 自动更新！
+```
+
+### 响应式编程的优势
+
+1. **自动依赖追踪** - 无需手动管理数据依赖关系
+2. **声明式编程** - 专注于"做什么"而不是"怎么做"
+3. **数据一致性** - 避免状态不同步的问题
+4. **组合性** - 轻松组合复杂的数据流逻辑
+
 ## 核心特性
 
 ### 1. 基于 BehaviorSubject
@@ -65,30 +98,96 @@ const data$ = new LiveData(initialValue, upstream => upstream.pipe(/* operators 
 
 ##### `LiveData.from()`
 
-从 Observable 或函数创建 LiveData：
+从 Observable 或函数创建 LiveData。这个方法有三种使用方式：
+
+**方式1：从普通 Observable 创建**
 
 ```typescript
-// 从 Observable 创建
-const data$ = LiveData.from(
-  interval(1000).pipe(map(i => i * 2)),
-  0 // 初始值
-);
+import { of, interval } from 'rxjs';
 
-// 从函数创建（支持生命周期管理）
-const managed$ = LiveData.from(
-  stream$ =>
-    stream$.pipe(
-      switchMap(op => {
-        if (op === 'watch') {
-          return fetchData(); // 开始获取数据
+// 从静态值创建
+const staticData$ = LiveData.from(of(1, 2, 3), 0);
+// 初始值是 0，然后依次变为 1, 2, 3
+
+// 从定时器创建
+const timer$ = LiveData.from(interval(1000), -1);
+// 初始值是 -1，然后每秒递增：0, 1, 2, 3...
+```
+
+**方式2：从函数创建（支持懒加载）**
+
+这是 LiveData 的高级功能，支持基于订阅状态的生命周期管理：
+
+```typescript
+// 模拟一个需要资源的数据源
+function createExpensiveDataSource() {
+  console.log('启动昂贵的数据源...');
+  return interval(1000).pipe(
+    map(i => `数据-${i}`),
+    tap(() => console.log('生成数据'))
+  );
+}
+
+const lazyData$ = LiveData.from(
+  // 这个函数接收操作流，返回数据流
+  operationStream$ => {
+    return operationStream$.pipe(
+      // 处理不同的操作类型
+      mergeMap(operation => {
+        if (operation === 'set') {
+          return EMPTY; // 设置操作不产生数据
+        } else if (operation === 'get') {
+          return of('watch', 'unwatch'); // 获取操作产生 watch 和 unwatch
         } else {
-          return EMPTY; // 停止获取数据
+          return of(operation); // 其他操作直接传递
+        }
+      }),
+
+      // 计算观察者数量
+      scan((watcherCount, operation) => {
+        if (operation === 'watch') {
+          return watcherCount + 1; // 增加观察者
+        } else if (operation === 'unwatch') {
+          return watcherCount - 1; // 减少观察者
+        } else {
+          return watcherCount; // 数量不变
+        }
+      }, 0), // 初始观察者数量为 0
+
+      // 判断是否需要激活
+      map(count => (count > 0 ? 'watch' : 'unwatch')),
+
+      // 去重，避免重复的激活/停用
+      distinctUntilChanged(),
+
+      // 根据状态决定数据源
+      switchMap(status => {
+        if (status === 'watch') {
+          return createExpensiveDataSource(); // 有观察者时，连接上游数据源
+        } else {
+          return EMPTY; // 没有观察者时，停止数据流
         }
       })
-    ),
-  null
+    );
+  },
+  '初始值'
 );
+
+console.log('LiveData 已创建，但数据源还未启动');
+
+// 只有当订阅时，数据源才会启动
+const subscription = lazyData$.subscribe(data => {
+  console.log('收到数据:', data);
+});
+
+// 取消订阅时，数据源会停止
+setTimeout(() => {
+  subscription.unsubscribe();
+  console.log('数据源已停止');
+}, 5000);
 ```
+
+这个机制实现了**懒加载**：只有当有人订阅 LiveData 时，才会激活上游的数据源，从而节省资源。
 
 ##### `LiveData.fromSignal()`
 
@@ -103,19 +202,84 @@ const count$ = LiveData.fromSignal(count);
 
 ##### `LiveData.computed()`
 
-创建计算属性 LiveData：
+创建计算属性 LiveData，这是 LiveData 最强大的功能之一：
 
 ```typescript
-const a$ = new LiveData(1);
-const b$ = new LiveData(2);
+static computed<T>(
+  compute: (get: <L>(data: LiveData<L>) => L) => T
+): LiveData<T>
+```
 
-const sum$ = LiveData.computed(get => {
-  return get(a$) + get(b$);
+**基础用法**
+
+```typescript
+const firstName$ = new LiveData('张');
+const lastName$ = new LiveData('三');
+
+const fullName$ = LiveData.computed(get => {
+  // get 函数会自动追踪依赖
+  return get(firstName$) + get(lastName$);
 });
 
-console.log(sum$.value); // 3
-a$.next(5);
-console.log(sum$.value); // 7
+console.log(fullName$.value); // "张三"
+
+firstName$.next('李');
+console.log(fullName$.value); // "李三" - 自动重新计算
+```
+
+**条件依赖（智能依赖追踪）**
+
+```typescript
+const mode$ = new LiveData('light');
+const lightTheme$ = new LiveData({ bg: 'white', text: 'black' });
+const darkTheme$ = new LiveData({ bg: 'black', text: 'white' });
+
+const currentTheme$ = LiveData.computed(get => {
+  // 根据模式动态选择依赖
+  if (get(mode$) === 'light') {
+    return get(lightTheme$); // 只有在 light 模式下才依赖 lightTheme$
+  } else {
+    return get(darkTheme$); // 只有在 dark 模式下才依赖 darkTheme$
+  }
+});
+
+// 智能依赖追踪：只有当前使用的主题改变时才会重新计算
+```
+
+**复杂计算示例**
+
+```typescript
+const price$ = new LiveData(100);
+const quantity$ = new LiveData(2);
+const discountRate$ = new LiveData(0.1);
+const taxRate$ = new LiveData(0.08);
+
+const finalPrice$ = LiveData.computed(get => {
+  const price = get(price$);
+  const quantity = get(quantity$);
+  const discount = get(discountRate$);
+  const tax = get(taxRate$);
+
+  const subtotal = price * quantity;
+  const discounted = subtotal * (1 - discount);
+  const final = discounted * (1 + tax);
+
+  return Math.round(final * 100) / 100; // 保留两位小数
+});
+
+console.log(finalPrice$.value); // 194.4
+price$.next(150);
+console.log(finalPrice$.value); // 291.6 - 自动重新计算
+```
+
+**递归限制保护**
+
+```typescript
+// 这会触发递归限制，保护系统不会无限递归
+const problematic$ = LiveData.computed(get => {
+  return get(problematic$) + 1; // 自己依赖自己，会抛出错误
+});
+// Error: computed recursive limit exceeded
 ```
 
 #### 实例方法
@@ -188,7 +352,96 @@ console.log(signal.value); // 与 data$.value 相同
 
 ## 操作符 (ops.ts)
 
-### 数据流操作符
+操作符是处理数据流的工具，就像工厂流水线上的不同工序。在 LiveData 中，我们可以使用 RxJS 的所有操作符，同时还提供了一些专门的操作符。
+
+### RxJS 操作符基础
+
+在深入 LiveData 特有的操作符之前，让我们先了解常用的 RxJS 操作符：
+
+#### 数据转换类操作符
+
+**`map` - 数据转换**
+就像 JavaScript 数组的 map 方法，对每个值进行转换：
+
+```typescript
+const numbers$ = new LiveData(5);
+
+// 将数字转换为字符串
+const strings$ = numbers$.map(num => `数字是: ${num}`);
+
+console.log(strings$.value); // "数字是: 5"
+numbers$.next(10);
+console.log(strings$.value); // "数字是: 10"
+```
+
+**`filter` - 数据过滤**
+只保留满足条件的值：
+
+```typescript
+const allNumbers$ = new LiveData(1);
+
+// 只保留大于 5 的数字
+const bigNumbers$ = LiveData.from(
+  allNumbers$.pipe(filter(num => num > 5)),
+  0 // 初始值
+);
+
+allNumbers$.next(3); // bigNumbers$ 不会更新
+allNumbers$.next(8); // bigNumbers$ 更新为 8
+```
+
+**`distinctUntilChanged` - 去重**
+只有当值真的改变时才发出通知：
+
+```typescript
+const data$ = new LiveData(1);
+const unique$ = data$.distinctUntilChanged();
+
+unique$.subscribe(val => console.log('值改变了:', val));
+
+data$.next(1); // 不会打印，因为值没变
+data$.next(1); // 不会打印，因为值没变
+data$.next(2); // 打印 "值改变了: 2"
+```
+
+#### 异步操作符
+
+**`switchMap` - 切换映射**
+将一个值映射为新的 Observable，并自动切换到最新的：
+
+```typescript
+const userId$ = new LiveData(1);
+
+// 根据用户ID获取用户数据
+const userData$ = LiveData.from(
+  userId$.pipe(
+    switchMap(id =>
+      // 模拟 API 调用
+      fromPromise(signal => fetch(`/api/users/${id}`, { signal }).then(res => res.json()))
+    )
+  ),
+  null
+);
+
+userId$.next(2); // 会取消之前的请求，只返回用户2的数据
+```
+
+**`mergeMap` - 合并映射**
+与 switchMap 不同，不会取消之前的请求：
+
+```typescript
+const searchTerm$ = new LiveData('');
+
+const searchResults$ = LiveData.from(
+  searchTerm$.pipe(
+    filter(term => term.length > 2),
+    mergeMap(term => fromPromise(signal => fetch(`/api/search?q=${term}`, { signal }).then(res => res.json())))
+  ),
+  []
+);
+```
+
+### 数据流操作符（LiveData 特有）
 
 #### `mapInto()`
 
@@ -520,7 +773,3 @@ class UserService {
 ```typescript
 const settings$ = LiveData.from(storage.watch('settings').pipe(map(data => JSON.parse(data || '{}'))), {});
 ```
-
----
-
-_最后更新: 2024年12月_

@@ -147,6 +147,37 @@ tools/cli/
 - 生成 TypeScript 项目引用
 - 同步 Prettier 忽略规则
 
+#### workspace.gen.ts 的生成机制
+
+`workspace.gen.ts` 文件的内容是通过执行 [init] 命令时自动生成的。
+
+1. **包信息的来源**
+
+   - `workspace.gen.ts` 的内容来源于 Yarn 的以下命令：
+     ```bash
+     yarn workspaces list -v --json
+     ```
+   - 这个命令会列出所有工作区中的包及其元数据。
+
+2. **Yarn 工作区的解析**
+
+   - 在 AFFiNE 的 Monorepo 结构中，Yarn 被配置为支持多个工作区（Workspaces）。
+   - 每个工作区在 `package.json` 中通过 `workspaces` 字段声明。
+   - 当运行上述命令时，Yarn 返回每个包的详细信息，包括：
+     - 包名 (`name`)
+     - 包路径 (`location`)
+     - 依赖关系 (`workspaceDependencies`)
+
+3. **第一次初始化的处理**
+
+   - 如果 `workspace.gen.ts` 文件不存在（即第一次运行 `init` 命令），则系统直接使用 `yarnList()` 获取最新的包信息。
+   - 初始化完成后，`workspace.gen.ts` 文件会被生成并用于后续的依赖管理和类型定义。
+
+4. **总结**
+   - `workspace.gen.ts` 的包信息来源于 Yarn 的 `workspaces list` 命令。
+   - 第一次初始化时，由于该文件不存在，系统自动获取最新包信息并生成它。
+   - 这种机制确保了即使没有预先存在的 `workspace.gen.ts` 文件，也能正确构建整个项目结构。
+
 #### 2.6 打包命令 (`BundleCommand`)
 
 **功能**: Webpack 打包和开发服务器
@@ -379,3 +410,56 @@ case '@my/package': {
 - 检查环境变量传递
 - 验证工作区配置正确性
 - 确认 Webpack 配置匹配包结构
+
+## 7. Yarn 依赖管理机制
+
+AFFiNE 使用 Yarn 4（Berry）作为包管理工具，其默认行为和配置确保了整个 Monorepo 中依赖的一致性和高效共享。
+
+### 7.1 自动 Hoisting（依赖提升）
+
+- **默认启用**：Yarn 4 默认会尽可能将依赖提升到根目录的 `node_modules` 中，以减少重复安装和版本冲突。
+- **无需显式配置**：除非你手动修改 `.yarnrc.yml` 或使用 `nohoist`，否则所有 workspace 共享根目录依赖。
+- **优势**：
+  - 减少磁盘空间占用
+  - 提高构建速度
+  - 避免多个版本共存导致的运行时问题
+
+### 7.2 依赖解析优先级
+
+Yarn 在解析依赖时遵循以下优先级规则：
+
+1. **`resolutions` 字段中显式指定的版本**（优先级最高）
+2. 根项目 `dependencies` / `devDependencies` 中声明的版本
+3. 各 workspace 中 `dependencies` / `devDependencies` 中声明的版本
+4. 默认行为：选择一个兼容且最新的版本
+
+这意味着：即使某些子项目指定了不同版本范围，只要能兼容，Yarn 就会选择一个统一版本进行安装。
+
+### 7.3 版本匹配与兼容性处理
+
+当多个 workspace 对同一个依赖（如 [react]）声明了不同的版本要求时，Yarn 会尝试选择一个满足所有需求的版本。
+
+例如：
+
+```bash
+via npm:^19.0.0
+via npm:19.1.0
+via npm:^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+```
+
+这些表达式表示各个 workspace 或依赖项对 [react] 的期望版本。虽然它们不完全一致，但最终都被 Yarn 解析为 `react@19.1.0`，因为它是兼容的最新版本。
+
+### 7.4 推荐实践
+
+为了增强依赖一致性，建议在根 `package.json` 中增加 `resolutions` 字段，强制统一关键依赖的版本，例如：
+
+```json
+{
+  "resolutions": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  }
+}
+```
+
+这样可以防止未来引入不兼容版本，确保整个 Monorepo 的稳定性。

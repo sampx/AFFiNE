@@ -532,9 +532,354 @@ graph LR
     end
 ```
 
-## 使用示例集合
+## 组件注册与使用详解
 
-### 基础使用
+### 核心原理：注册 vs 实例化
+
+Framework 采用**两阶段设计**：
+
+1. **注册阶段**：建立 "类型 → 工厂函数" 的映射，不创建实例
+2. **实例化阶段**：使用时才根据映射创建实例并解析依赖
+
+```typescript
+// 注册阶段：只注册工厂函数，不创建实例
+framework
+  .service(WorkspacesService, [WorkspaceFlavoursService, ...])  // 注册工厂
+  .entity(WorkspaceList, [WorkspaceFlavoursService])            // 注册工厂
+  .store(WorkspaceProfileCacheStore, [GlobalCache])            // 注册工厂
+
+// 实例化阶段：使用时才创建实例
+const workspacesService = provider.get(WorkspacesService);  // 触发实例创建
+const workspace = provider.createEntity(Workspace);        // 创建新实例
+```
+
+### 组件注册方式选择
+
+根据**类的继承关系和用途**选择注册方式：
+
+| 注册方法     | 适用类型       | 判断标准           | 使用方式                  |
+| ------------ | -------------- | ------------------ | ------------------------- |
+| `.service()` | 继承 `Service` | 业务逻辑、单例服务 | `provider.get()`          |
+| `.entity()`  | 继承 `Entity`  | 状态对象、多实例   | `provider.createEntity()` |
+| `.store()`   | 继承 `Store`   | 数据持久化         | `provider.get()`          |
+| `.impl()`    | 实现接口       | 可替换实现         | `provider.get()`          |
+| `.scope()`   | 继承 `Scope`   | 作用域管理         | `provider.createScope()`  |
+
+### 各组件类型注册与使用示例
+
+#### 1. Service 注册与使用
+
+```typescript
+// 1. 定义 Service 类
+export class WorkspacesService extends Service {
+  constructor(
+    private readonly flavoursService: WorkspaceFlavoursService,
+    private readonly listService: WorkspaceListService,
+    // ... 其他依赖
+  ) {
+    super();
+  }
+
+  get deleteWorkspace() {
+    return this.destroy.deleteWorkspace;
+  }
+}
+
+// 2. 注册 Service（声明依赖关系）
+framework.service(WorkspacesService, [
+  WorkspaceFlavoursService,    // 依赖1
+  WorkspaceListService,        // 依赖2
+  // ... 其他依赖
+])
+
+// 3. 在 React 组件中使用
+function Component() {
+  const workspacesService = useService(WorkspacesService);  // 获取单例
+  const handleDelete = () => workspacesService.deleteWorkspace(id);
+  return <button onClick={handleDelete}>删除</button>;
+}
+```
+
+#### 2. Entity 注册与使用
+
+```typescript
+// 1. 定义 Entity 类
+export class WorkspaceList extends Entity {
+  workspaces$ = LiveData.from<WorkspaceMetadata[]>(/* ... */);
+
+  constructor(private readonly flavoursService: WorkspaceFlavoursService) {
+    super();
+  }
+
+  revalidate() {
+    this.flavoursService.flavours$.value.forEach(provider => {
+      provider.revalidate?.();
+    });
+  }
+}
+
+// 2. 注册 Entity（声明依赖关系）
+framework.entity(WorkspaceList, [WorkspaceFlavoursService])
+
+// 3. 在 Service 中动态创建实例
+export class WorkspaceListService extends Service {
+  // 每次调用都创建新实例（noCache: true）
+  list = this.framework.createEntity(WorkspaceList);
+}
+
+export class WorkspaceProfileService extends Service {
+  getProfile = (metadata: WorkspaceMetadata): WorkspaceProfile => {
+    // 为每个工作区创建独立的Profile实例
+    const profile = this.framework.createEntity(WorkspaceProfile, { metadata });
+    return this.pool.put(metadata.id, profile).obj;
+  };
+}
+
+// 4. 在 React 组件中通过 Service 使用
+function Component() {
+  const workspaceListService = useService(WorkspaceListService);
+  const workspaces = useLiveData(workspaceListService.list.workspaces$);
+  return <div>{workspaces.length} workspaces</div>;
+}
+```
+
+#### 3. Store 注册与使用
+
+```typescript
+// 1. 定义 Store 类
+export class WorkspaceProfileCacheStore extends Store {
+  constructor(private readonly cache: GlobalCache) {
+    super();
+  }
+
+  watchProfileCache(workspaceId: string) {
+    return this.cache.watch(WORKSPACE_PROFILE_CACHE_KEY + workspaceId);
+  }
+
+  setProfileCache(workspaceId: string, info: WorkspaceProfileInfo) {
+    this.cache.set(WORKSPACE_PROFILE_CACHE_KEY + workspaceId, info);
+  }
+}
+
+// 2. 注册 Store
+framework.store(WorkspaceProfileCacheStore, [GlobalCache]);
+
+// 3. 在 Entity 中依赖注入使用
+export class WorkspaceProfile extends Entity {
+  constructor(
+    private readonly store: WorkspaceProfileCacheStore, // 自动注入
+    private readonly flavoursService: WorkspaceFlavoursService
+  ) {
+    super();
+  }
+
+  syncWithWorkspace(workspace: Workspace) {
+    this.store.setProfileCache(workspace.id, this.profileInfo);
+  }
+}
+
+// 4. 注册 Entity（声明 Store 依赖）
+framework.entity(WorkspaceProfile, [
+  WorkspaceProfileCacheStore, // Store 依赖
+  WorkspaceFlavoursService, // Service 依赖
+]);
+```
+
+#### 4. Impl 注册与使用（接口实现）
+
+```typescript
+// 1. 定义接口和标识符
+export interface WorkspaceLocalState extends Memento {}
+export const WorkspaceLocalState = createIdentifier<WorkspaceLocalState>('WorkspaceLocalState');
+
+// 2. 定义实现类
+export class WorkspaceLocalStateImpl implements WorkspaceLocalState {
+  constructor(workspaceService: WorkspaceService, globalState: GlobalState) {
+    this.wrapped = wrapMemento(globalState, `workspace-state:${workspaceService.workspace.id}:`);
+  }
+
+  get<T>(key: string): T | undefined {
+    return this.wrapped.get<T>(key);
+  }
+
+  set<T>(key: string, value: T): void {
+    return this.wrapped.set<T>(key, value);
+  }
+}
+
+// 3. 注册接口实现
+framework.impl(WorkspaceLocalState, WorkspaceLocalStateImpl, [
+  WorkspaceService, // 实现类的依赖
+  GlobalState, // 实现类的依赖
+]);
+
+// 4. 在 Service 中注入接口使用
+export class RecentDocsService extends Service {
+  constructor(
+    private readonly localState: WorkspaceLocalState, // 注入接口，框架自动提供实现
+    private readonly docsService: DocsService
+  ) {
+    super();
+  }
+
+  addRecentDoc(pageId: string) {
+    this.localState.set(RECENT_PAGES_KEY, recentPages); // 使用接口方法
+  }
+}
+```
+
+#### 5. Scope 注册与使用
+
+```typescript
+// 1. 定义 Scope 类
+export class WorkspaceScope extends Scope<WorkspaceOpenOptions> {
+  override dispose(): void {
+    // 清理工作区相关资源
+  }
+}
+
+// 2. 注册 Scope
+framework.scope(WorkspaceScope);
+
+// 3. 在 Service 中创建作用域
+export class WorkspaceRepositoryService extends Service {
+  instantiate(openOptions: WorkspaceOpenOptions) {
+    // 为每个工作区创建独立的依赖注入容器
+    const workspaceScope = this.framework.createScope(WorkspaceScope, {
+      openOptions,
+      engineWorkerInitOptions,
+    });
+
+    // 在工作区作用域内获取服务
+    const workspace = workspaceScope.get(WorkspaceService).workspace;
+    return workspace;
+  }
+}
+```
+
+### 关键设计原理
+
+#### 1. 为什么必须先注册？
+
+```typescript
+// createEntity() 内部调用流程
+createEntity(identifier) {
+  return this.getRaw(identifier, { noCache: true });  // 查找已注册的工厂函数
+}
+
+getRaw(identifier) {
+  const factory = this.collection.getFactory(identifier);  // 查找工厂函数
+  if (!factory) {
+    throw new ComponentNotFoundError(identifier);  // 如果没注册，抛出异常
+  }
+  return factory(this);  // 执行工厂函数创建实例
+}
+```
+
+#### 2. 注册建立的映射关系
+
+```typescript
+// 框架内部类似这样的映射表
+{
+  "WorkspaceList": (provider) => new WorkspaceList(
+    provider.get(WorkspaceFlavoursService),  // 自动解析依赖
+    provider
+  ),
+  "WorkspaceLocalState": (provider) => new WorkspaceLocalStateImpl(
+    provider.get(WorkspaceService),
+    provider.get(GlobalState)
+  ),
+}
+```
+
+#### 3. 生命周期差异
+
+```typescript
+// Service: 单例，依赖注入
+const service = provider.get(WorkspaceService); // 缓存的单例
+
+// Entity: 多实例，动态创建
+const entity1 = provider.createEntity(WorkspaceList); // 新实例
+const entity2 = provider.createEntity(WorkspaceList); // 另一个新实例
+
+// Store: 单例，持久化
+const store = provider.get(WorkspaceProfileCacheStore); // 缓存的单例
+
+// Impl: 单例，接口实现
+const impl = provider.get(WorkspaceLocalState); // 缓存的实现实例
+```
+
+#### 4. 依赖注入 vs 动态创建的选择
+
+**构造函数依赖注入** - 用于单例组件：
+
+```typescript
+class WorkspacesService extends Service {
+  constructor(
+    private readonly flavoursService: WorkspaceFlavoursService, // 单例注入
+    private readonly listService: WorkspaceListService // 单例注入
+  ) {
+    super();
+  }
+}
+```
+
+**动态创建** - 用于多实例组件：
+
+```typescript
+class WorkspaceListService extends Service {
+  list = this.framework.createEntity(WorkspaceList); // 动态创建新实例
+}
+
+class WorkspaceProfileService extends Service {
+  getProfile(metadata: WorkspaceMetadata) {
+    // 为每个工作区创建独立实例
+    return this.framework.createEntity(WorkspaceProfile, { metadata });
+  }
+}
+```
+
+### 完整注册配置示例
+
+```typescript
+export function configureWorkspaceModule(framework: Framework) {
+  framework
+    // 注册基础服务（被其他组件依赖）
+    .service(WorkspaceFlavoursService, [[WorkspaceFlavoursProvider]])
+    .service(WorkspaceListService)
+    .service(WorkspaceProfileService)
+
+    // 注册 Entity（多实例，状态对象）
+    .entity(WorkspaceList, [WorkspaceFlavoursService])
+    .entity(WorkspaceProfile, [WorkspaceProfileCacheStore, WorkspaceFlavoursService])
+
+    // 注册 Store（持久化）
+    .store(WorkspaceProfileCacheStore, [GlobalCache])
+
+    // 注册接口实现（可替换）
+    .impl(WorkspaceLocalState, WorkspaceLocalStateImpl, [WorkspaceService, GlobalState])
+    .impl(WorkspaceLocalCache, WorkspaceLocalCacheImpl, [WorkspaceService, GlobalCache])
+
+    // 注册作用域
+    .scope(WorkspaceScope)
+
+    // 注册作用域内的服务
+    .service(WorkspaceService) // 在 WorkspaceScope 内使用
+    .entity(Workspace, [WorkspaceScope, FeatureFlagService])
+
+    // 注册复合服务（依赖多个子服务）
+    .service(WorkspacesService, [
+      WorkspaceFlavoursService,
+      WorkspaceListService,
+      WorkspaceProfileService,
+      // ... 其他依赖
+    ]);
+}
+```
+
+### 使用示例集合
+
+#### 基础使用
 
 ```typescript
 // 服务定义
@@ -546,14 +891,14 @@ class LoggerService extends Service {
 
 // 框架初始化
 const framework = new Framework();
-framework.impl(LoggerService);
+framework.service(LoggerService);
 
 // 获取服务实例
 const logger = framework.provider().get(LoggerService);
 logger.log('Hello Framework!');
 ```
 
-### 作用域使用
+#### 作用域使用
 
 ```typescript
 // 用户作用域
@@ -567,7 +912,7 @@ const userProvider = framework.provider([UserScope]);
 const userService = userProvider.get(UserService);
 ```
 
-### React集成
+#### React集成
 
 ```tsx
 import { FrameworkRoot, useServices } from '@affine/infra/framework/react';
