@@ -5,6 +5,7 @@ import { BuildCommand } from './build';
 import { BundleCommand } from './bundle';
 import { CertCommand } from './cert';
 import { CleanCommand } from './clean';
+import { ModuleMapCommand } from './commands/module-map';
 import type { CliContext } from './context';
 import { DevCommand } from './dev';
 import { InitCommand } from './init';
@@ -25,6 +26,7 @@ cli.register(BuildCommand);
 cli.register(DevCommand);
 cli.register(BundleCommand);
 cli.register(CertCommand);
+cli.register(ModuleMapCommand);
 
 await cli.runExit(process.argv.slice(2), {
   workspace: new Workspace(),
