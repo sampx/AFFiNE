@@ -17,6 +17,12 @@
         },
         "about": "about",
         "notFound": "404"
+      },
+      "user": {
+        "route": "user",
+        "children": {
+          "profile": "profile"
+        }
       }
     }
   }
