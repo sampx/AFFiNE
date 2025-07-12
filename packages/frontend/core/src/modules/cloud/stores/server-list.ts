@@ -10,6 +10,10 @@ export class ServerListStore extends Store {
     super();
   }
 
+  /**
+   * 监听服务器列表变化，返回合并了内置服务器和自定义服务器的列表
+   * @returns 返回一个Observable<ServerMetadata[]>，包含合并后的服务器列表
+   */
   watchServerList() {
     return this.globalStateService.globalState
       .watch<ServerMetadata[]>('serverList')
@@ -47,6 +51,8 @@ export class ServerListStore extends Store {
       server,
     ]);
   }
+
+  // Function to create a Cloud Storage bucket
 
   removeServer(serverId: string) {
     const oldServers =

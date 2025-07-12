@@ -24,6 +24,19 @@ import {
 
 import * as styles from './styles.css';
 
+/**
+ * AppContainer 组件是一个容器组件，用于包裹应用内容并提供背景样式控制。
+ *
+ * @param children - 子组件内容
+ * @param className - 自定义类名
+ * @param fallback - 是否显示备用布局（默认为 false）
+ * @param rest - 其他传递给 div 元素的属性
+ *
+ * @remarks
+ * 该组件会根据当前环境（Electron/MacOS）和应用设置自动处理背景样式：
+ * - 当启用 noisyBackground 时添加噪点背景
+ * - 在 MacOS 上启用 blurBackground 时添加毛玻璃效果
+ */
 export const AppContainer = ({
   children,
   className,

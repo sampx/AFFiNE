@@ -8,23 +8,37 @@ export const FrameworkProviderContext = React.createContext<FrameworkProvider>(
   Framework.EMPTY.provider()
 );
 
+/**
+ * 获取当前框架的上下文提供者
+ *
+ * @returns FrameworkProvider - 框架上下文提供者实例，保证不为null（因为有默认值）
+ */
 export function useFramework(): FrameworkProvider {
   return useContext(FrameworkProviderContext); // never null, because the default value
 }
 
+/**
+ * 从框架上下文中获取指定标识符对应的服务实例
+ * @param identifier - 服务标识符
+ * @returns 对应的服务实例
+ * @template T - 服务类型
+ */
 export function useService<T>(identifier: GeneralIdentifier<T>): T {
   return useContext(FrameworkProviderContext).get(identifier);
 }
 
 /**
- * Hook to get services from the current framework stack.
+ * 自定义钩子，用于从框架提供者中获取多个服务实例
  *
- * Automatically converts the service name to camelCase.
+ * @template T - 服务标识符的键值对类型，键为字符串，值为通用服务标识符
+ * @param identifiers - 包含服务标识符键值对的对象
+ * @returns 返回一个对象，其中键为原始标识符键的小写首字母形式，值为对应的服务实例
  *
  * @example
- * ```ts
- * const { authService, userService } = useServices({ AuthService, UserService });
- * ```
+ * const { userService, authService } = useServices({
+ *   UserService: UserServiceIdentifier,
+ *   AuthService: AuthServiceIdentifier
+ * });
  */
 export function useServices<
   const T extends { [key in string]: GeneralIdentifier<Service> },
@@ -50,6 +64,11 @@ export function useServiceOptional<T extends Service>(
   return useContext(FrameworkProviderContext).getOptional(identifier);
 }
 
+/**
+ * 框架根组件，用于提供框架上下文
+ * @param framework - 框架提供器实例
+ * @param children - 子组件
+ */
 export const FrameworkRoot = ({
   framework,
   children,
@@ -61,6 +80,17 @@ export const FrameworkRoot = ({
   );
 };
 
+/**
+ * 框架作用域组件，用于提供嵌套的框架上下文
+ *
+ * @param scope - 可选的作用域对象，包含框架实例
+ * @param children - 子组件
+ * @returns 返回一个提供新框架上下文的React Provider组件
+ *
+ * @remarks
+ * 当传入scope时，会创建一个新的框架堆栈提供者，将当前provider与scope中的框架实例合并
+ * 否则直接使用上层提供的context
+ */
 export const FrameworkScope = ({
   scope,
   children,

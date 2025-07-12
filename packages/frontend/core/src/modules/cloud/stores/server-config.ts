@@ -16,6 +16,14 @@ export class ServerConfigStore extends Store {
     super();
   }
 
+  /**
+   * 获取服务器配置信息
+   *
+   * @param serverBaseUrl - 服务器基础URL
+   * @param abortSignal - 可选的AbortSignal用于取消请求
+   * @returns 包含服务器配置和OAuth提供者信息的Promise
+   * @throws 当请求失败时抛出错误
+   */
   async fetchServerConfig(
     serverBaseUrl: string,
     abortSignal?: AbortSignal
