@@ -88,3 +88,7 @@ af.cmd
 
 # playwright
 storageState.json
+
+# ai
+CLAUDE.md
+.claude/
